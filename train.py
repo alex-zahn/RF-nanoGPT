@@ -113,7 +113,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
-def get_batch(split):
+def get_batch_language(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
@@ -129,6 +129,17 @@ def get_batch(split):
     else:
         x, y = x.to(device), y.to(device)
     return x, y
+
+def get_batch_iq(split):
+    pass
+
+def get_batch_iq_dummy(split):
+    x = torch.ones([batch_size,block_size,n_embd])
+    y = torch.ones([batch_size,block_size,n_embd])
+    return x.to(device),y.to(device)
+
+
+get_batch = get_batch_iq_dummy
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
@@ -248,12 +259,15 @@ if wandb_log and master_process:
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
+#print('X',X.shape,'Y', Y.shape) ###
+
+
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
 while True:
-
+    #print('X',X,'Y',Y) ###
     # determine and set the learning rate for this iteration
     lr = get_lr(iter_num) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
@@ -298,6 +312,7 @@ while True:
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
             logits, loss = model(X, Y)
+            #print('logits',logits.shape)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
